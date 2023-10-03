@@ -5,7 +5,7 @@ import logging
 log_format = '%(asctime)s - %(levelname)s - %(message)s'
 logging.basicConfig(filename='app.log', level=logging.INFO, format=log_format)
 
-def search_ip(ip_address_str, prefix_data):
+def search_ip(ip_address_str, flattened_prefix_data):
     try:
         ip = ip_address(ip_address_str)
     except ValueError:
@@ -15,17 +15,16 @@ def search_ip(ip_address_str, prefix_data):
 
     # Search for matching prefixes in the loaded data
     matching_results = []
-    for provider, prefix_groups in prefix_data.items():
-        for group in prefix_groups:
-            for prefix in group["prefixes"]:
-                if ip in ip_network(prefix, strict=False):
-                    matching_results.append(
-                        {
-                            "subnet": prefix,
-                            "provider": provider,
-                            "ip": ip_address_str,
-                            "tags": group["tags"],
-                        }
-                    )
+    for entry in flattened_prefix_data:
+        prefix = entry["prefix"]
+        if ip in ip_network(prefix, strict=False):
+            matching_results.append(
+                {
+                    "subnet": prefix,
+                    "provider": entry["provider"],
+                    "ip": ip_address_str,
+                    "tags": entry["tags"],
+                }
+            )
 
     return matching_results

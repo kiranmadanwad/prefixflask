@@ -1,48 +1,55 @@
-import json
-import unittest
-from unittest.mock import patch
+import pytest
 from flask import Flask
 from flask.testing import FlaskClient
-from app import PrefixSearchResource, app, prefix_data
+from services.search_service import SearchService
+from controller.prefix_controller import PrefixSearchController
+from app import api, app
 
-class TestPrefixSearchResource(unittest.TestCase):
-    def setUp(self):
-        self.app = app.test_client()
-    
-    def test_get_valid_ip(self):
-        ip_address = "192.124.249.1"
-        response = self.app.get(f"/api/v1/prefixes?ip={ip_address}")
-        data = json.loads(response.data.decode("utf-8"))
-        self.assertEqual(response.status_code, 200)
-        self.assertIn("result", data)
+@pytest.fixture
+def client():
+    # Create a Flask test client
+    with app.test_client() as client:
+        yield client
 
-    def test_get_invalid_ip(self):
-        invalid_ip = "invalid_ip"
-        response = self.app.get(f"/api/v1/prefixes?ip={invalid_ip}")
-        data = json.loads(response.data.decode("utf-8"))
-        self.assertEqual(response.status_code, 200)        
-        self.assertIn("result", data)
-        result_data = data["result"]        
-        self.assertEqual(len(result_data), 1)
-        error_item = result_data[0]        
-        self.assertIn("error", error_item)
-        self.assertEqual(error_item["error"], "Invalid IP address format invalid_ip")
+@pytest.fixture
+def search_service():
+    return SearchService([
+            {"provider": "provider1", "prefix": "192.168.1.0/24", "tags": ["tag1"]},
+            {"provider": "provider2", "prefix": "10.0.0.0/8", "tags": ["tag2"]}
+        ])
 
-    @patch("app.search_ip")  # Mock the search_ip function
-    def test_post_valid_ips(self, mock_search_ip):
-        mock_search_ip.return_value = [{"subnet": "192.124.249.0/24", "provider": "Sucuri", "ip": "192.124.249.1", "tags": ["Cloud", "CDN/WAF"]}]
-        request_data = {"ips": ["192.124.249.1"]}
-        response = self.app.post("/api/v1/prefixes", json=request_data)
-        data = json.loads(response.data.decode("utf-8"))
-        self.assertEqual(response.status_code, 200)
-        self.assertIn("result", data)
+def test_get_valid_ip(client, search_service):
+    controller = PrefixSearchController(search_service)
+    response = client.get("/api/v1/prefixes?ip=192.168.1.5")
+    assert response.status_code == 200
+    data = response.get_json()
+    assert "result" in data
+    assert data["result"] == []
 
-    def test_post_invalid_data(self):
-        invalid_data = {}
-        response = self.app.post("/api/v1/prefixes", json=invalid_data)
-        data = json.loads(response.data.decode("utf-8"))
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("error", data)
+def test_get_invalid_ip(client, search_service):
+    controller = PrefixSearchController(search_service)
+    response = client.get("/api/v1/prefixes?ip=invalid_ip_format")
 
-if __name__ == "__main__":
-    unittest.main()
+    assert response.status_code == 200
+    data = response.get_json()
+    result_data = data["result"]        
+    assert len(result_data) == 1
+    error_item = result_data[0]
+    assert error_item["error"] == "Invalid IP address format invalid_ip_format"
+
+def test_post_valid_ips(client, search_service):
+    controller = PrefixSearchController(search_service)
+    data = {"ips": ["192.168.1.5", "10.0.0.1"]}
+    response = client.post("/api/v1/prefixes", json=data)
+    assert response.status_code == 200
+    data = response.get_json()
+    assert "result" in data
+    assert data["result"] == []
+
+def test_post_invalid_ips(client, search_service):
+    controller = PrefixSearchController(search_service)
+    response = client.post("/api/v1/prefixes", json={})
+
+    assert response.status_code == 400
+    data = response.get_json()
+    assert "error" in data
